@@ -1,0 +1,88 @@
+{% extends "base.html" %}
+
+{% block title %}Portfolio Comparison - Portfolio Tracker{% endblock %}
+
+{% block content %}
+<h2>Portfolio vs. Benchmark Performance</h2>
+
+<form method="GET" action="{{ url_for('compare') }}" class="benchmark-form">
+    <label for="benchmark_ticker">Select Benchmark:</label>
+    <select id="benchmark_ticker" name="benchmark_ticker">
+        {% for ticker in available_benchmarks %}
+            <option value="{{ ticker }}" {% if ticker == current_benchmark_ticker %}selected{% endif %}>{{ ticker }}</option>
+        {% endfor %}
+    </select>
+    <button type="submit">Compare</button>
+</form>
+
+<p>Currently comparing against: <strong>{{ current_benchmark_ticker }}</strong></p>
+
+<div class="chart-container" style="position: relative; height:60vh; width:80vw; margin: auto;">
+    <canvas id="comparisonChart"></canvas>
+</div>
+
+<script src="https://cdn.jsdelivr.net/npm/chart.js"></script>
+<script>
+    const ctxComparison = document.getElementById('comparisonChart').getContext('2d');
+    const timeLabels = {{ time_labels|tojson }};
+    const portfolioPerformance = {{ portfolio_performance|tojson }};
+    const benchmarkPerformance = {{ benchmark_performance|tojson }};
+    const benchmarkTicker = {{ current_benchmark_ticker|tojson }};
+
+    // Ensure benchmarkPerformance is an array, even if it's empty, to prevent chart errors
+    const validBenchmarkPerformance = Array.isArray(benchmarkPerformance) ? benchmarkPerformance : [];
+
+    new Chart(ctxComparison, {
+        type: 'line',
+        data: {
+            labels: timeLabels,
+            datasets: [
+                {
+                    label: 'Portfolio Performance (% Change)',
+                    data: portfolioPerformance,
+                    borderColor: 'rgba(54, 162, 235, 1)',
+                    backgroundColor: 'rgba(54, 162, 235, 0.2)',
+                    tension: 0.1,
+                    fill: true,
+                },
+                {
+                    label: benchmarkTicker + ' Performance (% Change)',
+                    data: validBenchmarkPerformance, // Use the validated array
+                    borderColor: 'rgba(255, 99, 132, 1)',
+                    backgroundColor: 'rgba(255, 99, 132, 0.2)',
+                    tension: 0.1,
+                    fill: true,
+                }
+            ]
+        },
+        options: {
+            responsive: true,
+            maintainAspectRatio: false,
+            plugins: {
+                legend: {
+                    position: 'top',
+                },
+                title: {
+                    display: true,
+                    text: 'Portfolio vs. ' + benchmarkTicker + ' Performance (% Change from Start)'
+                }
+            },
+            scales: {
+                y: {
+                    beginAtZero: false, // Allow y-axis to not start at zero to better show differences
+                    title: {
+                        display: true,
+                        text: 'Percentage Change (%)'
+                    }
+                },
+                x: {
+                    title: {
+                        display: true,
+                        text: 'Time Period'
+                    }
+                }
+            }
+        }
+    });
+</script>
+{% endblock %}

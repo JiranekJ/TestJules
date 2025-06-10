@@ -1,0 +1,73 @@
+{% extends "base.html" %}
+
+{% block title %}Portfolio Graphs - Portfolio Tracker{% endblock %}
+
+{% block content %}
+<h2>Portfolio Asset Allocation</h2>
+
+<div class="chart-container" style="position: relative; height:60vh; width:80vw; margin: auto;">
+    <canvas id="portfolioPieChart"></canvas>
+</div>
+
+<script src="https://cdn.jsdelivr.net/npm/chart.js"></script>
+<script>
+    const ctx = document.getElementById('portfolioPieChart').getContext('2d');
+    const assetLabels = {{ labels|tojson }};
+    const assetValues = {{ values|tojson }};
+
+    // Generate random colors for variety if not enough predefined ones
+    function generateRandomColor() {
+        var r = Math.floor(Math.random() * 255);
+        var g = Math.floor(Math.random() * 255);
+        var b = Math.floor(Math.random() * 255);
+        return "rgb(" + r + "," + g + "," + b + ")";
+    }
+
+    let backgroundColors = [
+        'rgba(255, 99, 132, 0.8)',
+        'rgba(54, 162, 235, 0.8)',
+        'rgba(255, 206, 86, 0.8)',
+        'rgba(75, 192, 192, 0.8)',
+        'rgba(153, 102, 255, 0.8)',
+        'rgba(255, 159, 64, 0.8)',
+        'rgba(199, 199, 199, 0.8)',
+        'rgba(83, 102, 255, 0.8)',
+        'rgba(40, 159, 64, 0.8)',
+        'rgba(210, 99, 132, 0.8)'
+    ];
+
+    if (assetLabels.length > backgroundColors.length) {
+        for (let i = backgroundColors.length; i < assetLabels.length; i++) {
+            backgroundColors.push(generateRandomColor());
+        }
+    }
+
+
+    new Chart(ctx, {
+        type: 'pie',
+        data: {
+            labels: assetLabels,
+            datasets: [{
+                label: 'Portfolio Allocation by Current Value',
+                data: assetValues,
+                backgroundColor: backgroundColors.slice(0, assetLabels.length),
+                borderColor: backgroundColors.map(color => color.replace('0.8', '1')), // Make border solid
+                borderWidth: 1
+            }]
+        },
+        options: {
+            responsive: true,
+            maintainAspectRatio: false,
+            plugins: {
+                legend: {
+                    position: 'top',
+                },
+                title: {
+                    display: true,
+                    text: 'Portfolio Asset Allocation by Current Value'
+                }
+            }
+        }
+    });
+</script>
+{% endblock %}
