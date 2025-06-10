@@ -1,7 +1,8 @@
 from flask import Flask, render_template, request, redirect, url_for, flash
 from flask_sqlalchemy import SQLAlchemy
 import datetime
-from datetime import datetime as dt # For parsing date string
+from datetime import datetime as dt, date as Date
+from .api_client import get_current_price, get_historical_data # Import new function
 
 app = Flask(__name__)
 app.config['SQLALCHEMY_DATABASE_URI'] = 'sqlite:///portfolio.db'
@@ -123,25 +124,33 @@ def trades_list():
     trades = Trade.query.order_by(Trade.date.desc()).all()
     return render_template('trades_list.html', trades=trades)
 
-mock_current_prices = {
-    'DEFAULT': 100.0,
-    'AAPL': 170.50,
-    'GOOGL': 2750.20,
-    'MSFT': 300.10,
-    # Add more tickers as needed
-}
+# mock_current_prices is now removed / commented out
+# mock_current_prices = {
+#     'DEFAULT': 100.0,
+#     'AAPL': 170.50,
+#     'GOOGL': 2750.20,
+#     'MSFT': 300.10,
+# }
 
 @app.route('/portfolio')
 def portfolio():
-    assets = PortfolioAsset.query.filter(PortfolioAsset.quantity > 0).all() # Only display assets with quantity > 0
+    assets = PortfolioAsset.query.filter(PortfolioAsset.quantity > 0).all()
 
     portfolio_details = []
     total_portfolio_value = 0.0
     total_portfolio_cost_basis = 0.0
 
     for asset in assets:
-        current_price = mock_current_prices.get(asset.ticker.upper(), mock_current_prices['DEFAULT'])
-        current_value = asset.quantity * current_price
+        api_price = get_current_price(asset.ticker)
+
+        current_price_for_display = "N/A"
+        current_price_for_calculation = asset.average_buy_price # Fallback
+
+        if api_price is not None:
+            current_price_for_display = api_price
+            current_price_for_calculation = api_price
+
+        current_value = asset.quantity * current_price_for_calculation
         cost_basis = asset.quantity * asset.average_buy_price
         gain_loss = current_value - cost_basis
         percentage_gain_loss = (gain_loss / cost_basis) * 100 if cost_basis != 0 else 0
@@ -150,7 +159,7 @@ def portfolio():
             'ticker': asset.ticker,
             'quantity': asset.quantity,
             'average_buy_price': asset.average_buy_price,
-            'current_price': current_price,
+            'current_price_display': current_price_for_display, # For template
             'current_value': current_value,
             'cost_basis': cost_basis,
             'gain_loss': gain_loss,
@@ -158,7 +167,7 @@ def portfolio():
         })
 
         total_portfolio_value += current_value
-        total_portfolio_cost_basis += cost_basis
+        total_portfolio_cost_basis += cost_basis # Cost basis remains the same regardless of current price
 
     total_portfolio_gain_loss = total_portfolio_value - total_portfolio_cost_basis
     total_percentage_gain_loss = (total_portfolio_gain_loss / total_portfolio_cost_basis) * 100 if total_portfolio_cost_basis != 0 else 0
@@ -184,51 +193,34 @@ def portfolio():
         xirr_values = []
 
         for trade in trades_for_xirr:
-            # Ensure date is a datetime.date object for pyxirr if it's strict,
-            # or that all date/datetime objects are compatible (e.g. all naive or all aware)
-            # Assuming trade.date is a naive datetime.datetime object from strptime
-            xirr_dates.append(trade.date) # pyxirr can handle datetime.datetime
+            xirr_dates.append(trade.date)
             if trade.transaction_type == 'buy':
                 xirr_values.append(-(trade.price * trade.quantity + trade.fees))
             elif trade.transaction_type == 'sell':
                 xirr_values.append(trade.price * trade.quantity - trade.fees)
 
-        # Add current portfolio valuation as the final cash flow
-        if xirr_values: # Proceed only if there are trades, which implies xirr_dates is also populated
-            # Ensure dt.today() is compatible. dt.today() returns a datetime.date object.
-            # pyxirr should handle mixed datetime.date and datetime.datetime objects.
-            xirr_dates.append(dt.today())
+        if xirr_values:
+            xirr_dates.append(Date.today()) # Use datetime.date.today()
             xirr_values.append(total_portfolio_value)
 
-            # XIRR needs at least one positive and one negative cash flow.
             has_positive = any(v > 0 for v in xirr_values)
             has_negative = any(v < 0 for v in xirr_values)
 
             if len(xirr_values) >= 2 and has_positive and has_negative:
                 try:
-                    # Convert all dates to datetime.date objects just to be safe, though pyxirr might be flexible.
-                    # trade.date is datetime.datetime, dt.today() is datetime.date.
-                    # This conversion was found to be problematic in testing if not handled carefully.
-                    # For now, we will pass them as is, as pyxirr is generally robust.
-                    # processed_dates = [d.date() if isinstance(d, datetime.datetime) else d for d in xirr_dates]
-
-                    calculated_xirr = xirr(xirr_dates, xirr_values) # Use original xirr_dates
-
+                    calculated_xirr = xirr(xirr_dates, xirr_values)
                     if calculated_xirr is None:
-                        xirr_value = "XIRR could not be calculated (e.g., no solution found or invalid cash flows)."
+                        xirr_value = "XIRR could not be calculated (e.g., no solution found)."
                     else:
                         xirr_value = calculated_xirr
                 except Exception as e:
                     xirr_value = f"XIRR calculation error: {str(e)}"
             else:
-                xirr_value = "Insufficient data for XIRR (needs positive & negative cash flows, and at least two flows)."
+                xirr_value = "Insufficient data for XIRR."
         else:
-            xirr_value = "No trades recorded for XIRR calculation."
-
+            xirr_value = "No trades for XIRR."
     except ImportError:
-        # This message is already set as default, but kept here for clarity of logic flow
-        # xirr_value = "XIRR calculation unavailable (pyxirr not loaded or import error)"
-        pass
+        pass # xirr_value remains "XIRR calculation unavailable..."
 
     return render_template('portfolio.html',
                            assets=portfolio_details,
@@ -247,24 +239,28 @@ def portfolio_graphs():
     values = []
 
     for asset in assets:
-        current_price = mock_current_prices.get(asset.ticker.upper(), mock_current_prices['DEFAULT'])
-        current_value = asset.quantity * current_price
-        if current_value > 0: # Only include assets with a positive current value in the pie chart
+        # For pie chart, using live prices is better if available
+        price_for_chart = get_current_price(asset.ticker)
+        if price_for_chart is None: # Fallback for pie chart value if live price fails
+            price_for_chart = asset.average_buy_price
+            # Or, one might choose to skip assets where live price isn't available for allocation chart
+            # For now, using average_buy_price as a fallback to ensure it's part of the chart.
+
+        current_value = asset.quantity * price_for_chart
+        if current_value > 0:
             labels.append(asset.ticker)
             values.append(current_value)
 
     return render_template('portfolio_graphs.html', labels=labels, values=values)
 
-# Mock historical data
-mock_time_labels = ['Start', 'Month 1', 'Month 2', 'Month 3', 'Month 4', 'Current'] # 5 periods
-mock_portfolio_historical_simple = [10000, 10200, 10100, 10500, 10300, 10800]
-mock_period_years = len(mock_time_labels) - 1 # Assumes each label is one year apart
+# Mock historical data for portfolio (CAGR calculation still uses it)
+# mock_time_labels is removed as it's now derived from benchmark data or a fallback.
+mock_portfolio_historical_simple = [10000, 10200, 10100, 10500, 10300, 10800] # Stays for now
+mock_period_years = 5 # Fixed for CAGR, or make dynamic if portfolio history becomes dynamic
 
-mock_benchmark_historical_data = {
-    'SPY': [200, 201, 200, 203, 202, 205],
-    'QQQ': [150, 152, 151, 155, 154, 158],
-    'VT':  [75, 76, 75, 77, 76, 79]
-}
+# mock_benchmark_historical_data is removed.
+# Available benchmarks for the dropdown can be a predefined list.
+available_benchmarks_list = ['SPY', 'QQQ', 'VT', 'AGG'] # Example list
 
 def calculate_percentage_change(data_series):
     if not data_series or len(data_series) == 0:
@@ -278,27 +274,61 @@ def calculate_percentage_change(data_series):
 def compare():
     selected_benchmark_ticker = request.args.get('benchmark_ticker', 'SPY').upper()
 
-    benchmark_data_raw = mock_benchmark_historical_data.get(selected_benchmark_ticker)
-
-    portfolio_perf_pct = calculate_percentage_change(mock_portfolio_historical_simple)
+    time_labels = []
     benchmark_perf_pct = []
+    portfolio_perf_pct = [] # Renamed from portfolio_perf_pct for clarity
 
-    if benchmark_data_raw:
-        if len(benchmark_data_raw) == len(mock_time_labels) and len(mock_portfolio_historical_simple) == len(mock_time_labels):
-             benchmark_perf_pct = calculate_percentage_change(benchmark_data_raw)
-        else:
-            flash(f'Data length mismatch for {selected_benchmark_ticker}. Cannot display comparison.', 'error')
+    benchmark_hist_df = get_historical_data(selected_benchmark_ticker, period="1y", interval="1d")
+
+    if benchmark_hist_df is not None and not benchmark_hist_df.empty:
+        benchmark_raw_values = benchmark_hist_df['Close'].tolist()
+        # Ensure time_labels are strings, yfinance index can be DatetimeIndex
+        time_labels = benchmark_hist_df.index.strftime('%Y-%m-%d').tolist()
+
+        num_points = len(benchmark_raw_values)
+
+        # Align mock portfolio data
+        # Using a copy to avoid modifying the global mock list if it were to be used elsewhere unmodified
+        portfolio_raw_values_for_comparison = list(mock_portfolio_historical_simple)
+
+        if len(portfolio_raw_values_for_comparison) >= num_points:
+            portfolio_to_compare = portfolio_raw_values_for_comparison[:num_points]
+        else: # Portfolio history is shorter than benchmark history
+            portfolio_to_compare = portfolio_raw_values_for_comparison
+            # Benchmark data and time_labels should also be sliced to match the shorter portfolio history
+            benchmark_raw_values = benchmark_raw_values[:len(portfolio_to_compare)]
+            time_labels = time_labels[:len(portfolio_to_compare)]
+
+        # Recalculate num_points if benchmark was sliced
+        num_points = len(portfolio_to_compare) # This is now the effective number of points for both series
+
+        # Calculate percentage change if there are points to compare
+        if num_points > 0:
+            benchmark_perf_pct = calculate_percentage_change(benchmark_raw_values)
+            portfolio_perf_pct = calculate_percentage_change(portfolio_to_compare)
+        else: # Should not happen if benchmark_hist_df was not empty, but as a safeguard
+            flash('No data points available for comparison after alignment.', 'warning')
+            # time_labels will be from benchmark, potentially non-empty but benchmark_perf_pct will be empty.
+            # portfolio_perf_pct will also be empty.
+
     else:
-        flash(f'Benchmark data for {selected_benchmark_ticker} not found.', 'error')
-        # Provide empty list for benchmark to prevent chart error, or default to SPY's % change
-        # For simplicity, we'll use an empty list, the template should handle it.
+        flash(f'Could not fetch historical data for benchmark {selected_benchmark_ticker}. Displaying only portfolio mock data if available.', 'error')
+        # Fallback for portfolio data if benchmark fails
+        if mock_portfolio_historical_simple:
+             portfolio_perf_pct = calculate_percentage_change(mock_portfolio_historical_simple)
+             # Create simple time labels for the portfolio data
+             time_labels = [f"P{i+1}" for i in range(len(mock_portfolio_historical_simple))]
+        else:
+            portfolio_perf_pct = []
+            time_labels = []
+
 
     return render_template('compare.html',
-                           time_labels=mock_time_labels,
+                           time_labels=time_labels,
                            portfolio_performance=portfolio_perf_pct,
                            benchmark_performance=benchmark_perf_pct,
                            current_benchmark_ticker=selected_benchmark_ticker,
-                           available_benchmarks=list(mock_benchmark_historical_data.keys()))
+                           available_benchmarks=available_benchmarks_list) # Use predefined list
 
 if __name__ == '__main__':
     with app.app_context():

@@ -32,7 +32,7 @@
                 <th>Ticker</th>
                 <th>Quantity</th>
                 <th>Avg. Buy Price</th>
-                <th>Current Price</th>
+                <th>Current Price</th> <!-- Will display live price or N/A -->
                 <th>Cost Basis</th>
                 <th>Current Value</th>
                 <th>Gain/Loss</th>
@@ -45,7 +45,13 @@
                 <td>{{ asset.ticker }}</td>
                 <td>{{ "%.4f"|format(asset.quantity) }}</td>
                 <td>${{ "%.2f"|format(asset.average_buy_price) }}</td>
-                <td>${{ "%.2f"|format(asset.current_price) }}</td>
+                <td>
+                    {% if asset.current_price_display == "N/A" %}
+                        N/A
+                    {% else %}
+                        ${{ "%.2f"|format(asset.current_price_display) }}
+                    {% endif %}
+                </td>
                 <td>${{ "%.2f"|format(asset.cost_basis) }}</td>
                 <td>${{ "%.2f"|format(asset.current_value) }}</td>
                 <td style="color: {% if asset.gain_loss >= 0 %}green{% else %}red{% endif %};">

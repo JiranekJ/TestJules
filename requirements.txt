@@ -2,3 +2,4 @@ Flask>=2.0
 Flask-SQLAlchemy>=2.5
 SQLAlchemy>=1.4
 pyxirr>=0.10.0
+yfinance>=0.1.63
