@@ -26,7 +26,7 @@ Portfolio Tracker is a web application designed to help users track their invest
 ### Setup Steps
 1.  **Clone the repository** (or download the project files):
     ```bash
-    git clone https://github.com/yourusername/portfolio-tracker.git
+    git clone https://github.com/JiranekJ/TestJules.git
     ```
     (Replace the URL with the actual repository URL if available.)
 
