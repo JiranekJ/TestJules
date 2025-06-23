@@ -2,7 +2,8 @@ from flask import Flask, render_template, request, redirect, url_for, flash
 from flask_sqlalchemy import SQLAlchemy
 import datetime
 from datetime import datetime as dt, date as Date
-from .api_client import get_current_price, get_historical_data # Import new function
+# Corrected absolute import:
+from portfolio_tracker.api_client import get_current_price, get_historical_data
 
 app = Flask(__name__)
 app.config['SQLALCHEMY_DATABASE_URI'] = 'sqlite:///portfolio.db'
