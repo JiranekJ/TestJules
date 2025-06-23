@@ -57,7 +57,7 @@ Portfolio Tracker is a web application designed to help users track their invest
 
 6.  **Run the application:**
     ```bash
-    python portfolio_tracker/app.py
+    python portfolio_tracker.app
     ```
     The application will start, and the database (`portfolio.db`) will be created in the `portfolio_tracker` directory if it doesn't exist. Tables for trades and portfolio assets will also be initialized.
 
